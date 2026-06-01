@@ -1,0 +1,519 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Cyber Piano 88｜钢琴赛博音柱可视化网站</title>
+  <style>
+    :root{
+      --cyan:#00d8ff;
+      --panel:rgba(2, 8, 22, .58);
+      --line:rgba(85, 230, 255, .24);
+      --text:rgba(235, 252, 255, .92);
+      --muted:rgba(218, 246, 255, .62);
+    }
+    *{ box-sizing:border-box; }
+    html,body{ margin:0; height:100%; overflow:hidden; background:#02040b; color:var(--text); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",Arial,sans-serif; }
+    body::before{
+      content:""; position:fixed; inset:0; pointer-events:none;
+      background:
+        radial-gradient(circle at 50% 18%, rgba(0,216,255,.24), transparent 35%),
+        radial-gradient(circle at 18% 78%, rgba(111,0,255,.18), transparent 30%),
+        radial-gradient(circle at 82% 74%, rgba(0,255,180,.14), transparent 32%),
+        linear-gradient(180deg, #02040b 0%, #010208 100%);
+      z-index:0;
+    }
+    body::after{
+      content:""; position:fixed; inset:0; pointer-events:none; opacity:.22; z-index:1;
+      background-image:
+        linear-gradient(rgba(0,216,255,.16) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0,216,255,.14) 1px, transparent 1px);
+      background-size:52px 52px;
+      mask-image:radial-gradient(circle at center, black 25%, transparent 82%);
+    }
+    canvas{ position:fixed; inset:0; width:100vw; height:100vh; display:block; z-index:2; }
+    .hud-frame{ position:fixed; inset:14px; border:1px solid rgba(0,216,255,.18); pointer-events:none; z-index:3; box-shadow: inset 0 0 42px rgba(0,216,255,.06); }
+    .hud-frame::before,.hud-frame::after{ content:""; position:absolute; height:1px; left:10%; right:10%; background:linear-gradient(90deg,transparent,rgba(0,216,255,.62),transparent); }
+    .hud-frame::before{ top:18px; }.hud-frame::after{ bottom:18px; opacity:.55; }
+    .corner{ position:fixed; width:90px; height:90px; z-index:4; pointer-events:none; opacity:.62; }
+    .c1{ left:18px; top:18px; border-left:2px solid rgba(0,216,255,.7); border-top:2px solid rgba(0,216,255,.7); }
+    .c2{ right:18px; top:18px; border-right:2px solid rgba(0,216,255,.7); border-top:2px solid rgba(0,216,255,.7); }
+    .c3{ left:18px; bottom:18px; border-left:2px solid rgba(0,216,255,.45); border-bottom:2px solid rgba(0,216,255,.45); }
+    .c4{ right:18px; bottom:18px; border-right:2px solid rgba(0,216,255,.45); border-bottom:2px solid rgba(0,216,255,.45); }
+    .topbar{
+      position:fixed; left:24px; right:24px; top:18px; z-index:8; display:flex; align-items:flex-start; justify-content:space-between; gap:16px; pointer-events:none;
+    }
+    .title{ pointer-events:auto; max-width:620px; padding:12px 16px 13px; border:1px solid var(--line); background:linear-gradient(180deg,rgba(0,30,60,.52),rgba(0,0,0,.28)); backdrop-filter:blur(16px); border-radius:18px; box-shadow:0 0 36px rgba(0,216,255,.10); }
+    .title .tag{ font-size:12px; letter-spacing:.24em; text-transform:uppercase; color:rgba(190,250,255,.78); }
+    .title h1{ margin:5px 0 4px; font-size:23px; line-height:1.08; letter-spacing:.02em; }
+    .title p{ margin:0; font-size:12px; line-height:1.5; color:var(--muted); }
+    .controls{ pointer-events:auto; display:flex; flex-wrap:wrap; justify-content:flex-end; align-items:center; gap:8px; max-width:760px; }
+    button,.fileBtn,select{
+      border:1px solid rgba(0,216,255,.26); color:rgba(235,252,255,.94); background:rgba(0,36,68,.42); backdrop-filter:blur(14px);
+      border-radius:14px; padding:10px 13px; font-size:13px; line-height:1; cursor:pointer; transition:.18s ease; box-shadow: inset 0 0 22px rgba(0,216,255,.06), 0 0 22px rgba(0,216,255,.04); white-space:nowrap;
+    }
+    button:hover,.fileBtn:hover,select:hover{ background:rgba(0,216,255,.15); transform:translateY(-1px); }
+    button.primary{ background:#67e8f9; color:#05121b; font-weight:700; border-color:rgba(255,255,255,.45); box-shadow:0 0 26px rgba(103,232,249,.36); }
+    button.danger{ background:rgba(255,65,125,.13); border-color:rgba(255,70,130,.36); }
+    input[type=file]{ display:none; }
+    .status{
+      position:fixed; left:24px; right:24px; bottom:22px; z-index:8; display:flex; align-items:center; justify-content:space-between; gap:16px; pointer-events:none;
+    }
+    .chip{ pointer-events:auto; min-width:260px; max-width:780px; padding:10px 14px; border:1px solid rgba(0,216,255,.18); background:rgba(0,0,0,.34); backdrop-filter:blur(14px); border-radius:16px; color:rgba(235,252,255,.72); box-shadow:0 0 28px rgba(0,216,255,.06); }
+    .chip b{ color:rgba(235,252,255,.96); font-weight:650; }
+    .tiny{ font-size:12px; line-height:1.45; }
+    .progress{ height:7px; background:rgba(255,255,255,.08); border-radius:999px; overflow:hidden; margin-top:6px; }
+    .progress>i{ display:block; height:100%; width:0%; background:linear-gradient(90deg,#00d8ff,#ff3cff,#ffe600,#00ff9f); border-radius:999px; box-shadow:0 0 18px rgba(0,216,255,.9); }
+    .meterRow{ display:flex; justify-content:space-between; gap:14px; font-size:12px; }
+    @media (max-width:900px){
+      .topbar{ flex-direction:column; }
+      .title{ max-width:none; }
+      .controls{ justify-content:flex-start; max-width:none; }
+      .status{ flex-direction:column; align-items:stretch; }
+    }
+  </style>
+</head>
+<body>
+  <canvas id="stage"></canvas>
+  <div class="hud-frame"></div><div class="corner c1"></div><div class="corner c2"></div><div class="corner c3"></div><div class="corner c4"></div>
+  <div class="topbar">
+    <div class="title">
+      <div class="tag">Cyber Piano Pillars · MP3 3D</div>
+      <h1>Cyber Piano 88｜钢琴赛博音柱可视化</h1>
+      <p>上传 MP3 后，网页会用音频频谱估算88键音区能量：音量越大，音柱越高、越亮；高低音区会形成流动的赛博光柱画面。</p>
+    </div>
+    <div class="controls">
+      <label class="fileBtn">上传 MP3<input id="mp3Input" type="file" accept="audio/mpeg,.mp3" /></label>
+      <button id="playUpload" class="primary">播放上传音乐</button>
+      <select id="demoSelect" title="内置名曲示范">
+        <option value="ode">贝多芬《欢乐颂》主题</option>
+        <option value="canon">帕赫贝尔《D大调卡农》循环</option>
+        <option value="lullaby">舒伯特《摇篮曲》主题</option>
+        <option value="moonlight">贝多芬《月光奏鸣曲》片段</option>
+      </select>
+      <button id="playDemo">播放内置名曲</button>
+      <button id="pauseBtn">暂停/继续</button>
+      <button id="stopBtn" class="danger">停止</button>
+    </div>
+  </div>
+  <div class="status">
+    <div class="chip"><b id="trackName">未上传 MP3</b><div id="msg" class="tiny">这是一个可直接上线的网页版本：可上传 MP3，也可播放内置名曲示范；音柱会根据音乐频谱、音量和音区实时跳动。</div></div>
+    <div class="chip" style="min-width:min(540px,100%)">
+      <div class="meterRow"><span>整体音量能量</span><span id="energyText">0%</span></div>
+      <div class="progress"><i id="bar"></i></div>
+    </div>
+  </div>
+<script>
+(() => {
+  const canvas = document.getElementById('stage');
+  const ctx = canvas.getContext('2d');
+  const mp3Input = document.getElementById('mp3Input');
+  const playUploadBtn = document.getElementById('playUpload');
+  const playDemoBtn = document.getElementById('playDemo');
+  const pauseBtn = document.getElementById('pauseBtn');
+  const stopBtn = document.getElementById('stopBtn');
+  const demoSelect = document.getElementById('demoSelect');
+  const trackName = document.getElementById('trackName');
+  const msg = document.getElementById('msg');
+  const energyText = document.getElementById('energyText');
+  const bar = document.getElementById('bar');
+
+  const MIDI_START = 21, MIDI_END = 108;
+  const pitchNames = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+  const pitchHue = { C:205, 'C#':235, D:265, 'D#':295, E:330, F:22, 'F#':48, G:75, 'G#':125, A:178, 'A#':192, B:258 };
+
+  let W=0,H=0,DPR=1;
+  let audioCtx=null, analyser=null, freqData=null, timeData=null, binHz=0, masterGain=null;
+  let audioEl=null, mediaSource=null, objectUrl=null;
+  let activeOsc=[];
+  let currentMode='idle';
+  let lastEnergy=0;
+  let visualT=0;
+  let lastRenderTime=0;
+  const FRAME_INTERVAL = 1000/30; // 30fps：更流畅，风扇不容易起飞
+  const smooth = new Float32Array(88);
+
+  function resize(){
+    DPR = Math.max(1, Math.min(window.devicePixelRatio || 1, 1.25));
+    W = window.innerWidth; H = window.innerHeight;
+    canvas.width = Math.floor(W * DPR); canvas.height = Math.floor(H * DPR);
+    canvas.style.width = W+'px'; canvas.style.height = H+'px';
+    ctx.setTransform(DPR,0,0,DPR,0,0);
+  }
+  window.addEventListener('resize', resize); resize();
+
+  function midiToFreq(midi){ return 440 * Math.pow(2, (midi - 69) / 12); }
+  function midiToNote(midi){ const pitch = pitchNames[midi % 12]; const octave = Math.floor(midi/12)-1; return {midi,pitch,octave,name:pitch+octave}; }
+  function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
+  function color(note, velocity=0, alpha=1){
+    const hue = pitchHue[note.pitch];
+    const octNorm = clamp((note.octave + 1) / 9, 0, 1);
+    const light = 31 + octNorm * 33 + velocity * 18;
+    return `hsla(${hue}, ${92 + velocity*8}%, ${light}%, ${alpha})`;
+  }
+  function glow(note, velocity=0, alpha=1){
+    const hue = pitchHue[note.pitch];
+    const octNorm = clamp((note.octave + 1) / 9, 0, 1);
+    const light = 43 + octNorm * 28 + velocity * 20;
+    return `hsla(${hue}, 100%, ${light}%, ${alpha})`;
+  }
+
+  async function ensureAudio(){
+    if(!audioCtx){
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 8192;
+      analyser.smoothingTimeConstant = 0.78;
+      freqData = new Uint8Array(analyser.frequencyBinCount);
+      timeData = new Uint8Array(analyser.fftSize);
+      binHz = audioCtx.sampleRate / analyser.fftSize;
+      masterGain = audioCtx.createGain();
+      masterGain.gain.value = 0.70;
+      masterGain.connect(analyser);
+      analyser.connect(audioCtx.destination);
+    }
+    if(audioCtx.state !== 'running') await audioCtx.resume();
+  }
+
+  function connectUploadedAudio(){
+    if(!audioEl || mediaSource) return;
+    mediaSource = audioCtx.createMediaElementSource(audioEl);
+    mediaSource.connect(analyser);
+  }
+
+  function clearSynth(){
+    activeOsc.forEach(o => { try{o.stop(0)}catch(e){} try{o.disconnect()}catch(e){} });
+    activeOsc = [];
+  }
+  function stopAll(){
+    clearSynth();
+    if(audioEl){ audioEl.pause(); audioEl.currentTime = 0; }
+    currentMode='idle';
+    trackName.textContent = audioEl ? '已停止上传音乐' : '已停止';
+    msg.textContent = '可以上传 MP3，或播放内置世界名曲示范。';
+  }
+
+  function energyForMidi(midi){
+    if(!freqData || !binHz) return 0;
+    const f = midiToFreq(midi);
+    const low = f * Math.pow(2, -1/14);
+    const high = f * Math.pow(2, 1/14);
+    let a = Math.max(0, Math.floor(low/binHz));
+    let b = Math.min(freqData.length-1, Math.ceil(high/binHz));
+    if(b<a){ const tmp=a; a=b; b=tmp; }
+    let max=0,sum=0,count=0;
+    for(let i=a;i<=b;i++){ const v=freqData[i]; if(v>max) max=v; sum+=v; count++; }
+    const avg = count ? sum/count : 0;
+    let e = (max*.74 + avg*.26)/255;
+    if(f > 1200) e *= 1.30;
+    if(f > 2400) e *= 1.18;
+    if(f < 80) e *= .78;
+    if(f < 45) e *= .70;
+    return clamp(Math.pow(e, 1.08) * 1.95 - 0.018, 0, 1);
+  }
+
+  function totalEnergy(){
+    if(!timeData || !analyser) return 0;
+    analyser.getByteTimeDomainData(timeData);
+    let sum=0;
+    const step = 4;
+    let count = 0;
+    for(let i=0;i<timeData.length;i+=step){ const x=(timeData[i]-128)/128; sum += x*x; count++; }
+    return clamp(Math.sqrt(sum/Math.max(1,count))*3.9,0,1);
+  }
+
+  function updateAnalysis(){
+    if(analyser){
+      analyser.getByteFrequencyData(freqData);
+      const overall = totalEnergy();
+      lastEnergy = lastEnergy*.84 + overall*.16;
+    } else {
+      lastEnergy *= .92;
+    }
+    for(let i=0;i<88;i++){
+      const midi = MIDI_START+i;
+      let e = analyser ? energyForMidi(midi) : 0;
+      // 整体音量托底：避免真实 MP3 谱面太“稀”，但仍以频率对应为主。
+      e = clamp(e + lastEnergy*.08, 0, 1);
+      // 快起慢落，保留音乐残影。
+      smooth[i] = Math.max(e, smooth[i]*.885);
+    }
+    energyText.textContent = `${Math.round(lastEnergy*100)}%`;
+    bar.style.width = `${Math.round(lastEnergy*100)}%`;
+  }
+
+  function keyPosition(midi){
+    const note = midiToNote(midi);
+    const pitch = midi % 12;
+    const row = note.octave;
+    const marginX = Math.max(22, W*.018);
+    const usableW = W - marginX*2;
+    const colGap = usableW / 11.1;
+    const centerX = W/2;
+    // 为了让音柱占满画面，行距和前景基线比上一版更大一点。
+    const rowGap = Math.max(42, H*.068);
+    const baseFront = H * .86;
+    const skew = usableW * .024;
+    const x = centerX + (pitch - 5.5) * colGap + (row - 4) * skew;
+    const y = baseFront - row * rowGap;
+    const scale = 1.18 - row * .050;
+    return {x,y,scale,pitch,row,note};
+  }
+
+  function roundedRectPath(x,y,w,h,r){
+    const rr = Math.min(r,w/2,h/2);
+    ctx.beginPath();
+    ctx.moveTo(x+rr,y); ctx.arcTo(x+w,y,x+w,y+h,rr); ctx.arcTo(x+w,y+h,x,y+h,rr); ctx.arcTo(x,y+h,x,y,rr); ctx.arcTo(x,y,x+w,y,rr); ctx.closePath();
+  }
+
+  function drawPillar(x, baseY, w, h, note, amp, scale){
+    const c = color(note, amp, .88);
+    const g = glow(note, amp, 1);
+    const topH = Math.max(4, w*.32);
+    const topY = baseY - h;
+    // 底座
+    ctx.save();
+    ctx.globalAlpha = .23 + amp*.42;
+    ctx.shadowColor = g; ctx.shadowBlur = 6 + amp*18;
+    roundedRectPath(x-w*.88, baseY+4, w*1.76, Math.max(7,w*.54), Math.max(3,w*.16));
+    ctx.fillStyle = color(note, amp, .36); ctx.fill();
+    ctx.restore();
+    // 光晕
+    if(amp>.035){
+      const rad = 18 + amp*46;
+      const grd = ctx.createRadialGradient(x, topY+h*.46, 0, x, topY+h*.46, rad);
+      grd.addColorStop(0, glow(note,amp,.28)); grd.addColorStop(1, glow(note,amp,0));
+      ctx.fillStyle = grd; ctx.beginPath(); ctx.arc(x, topY+h*.46, rad, 0, Math.PI*2); ctx.fill();
+    }
+    // 柱身
+    ctx.save();
+    ctx.shadowColor = g; ctx.shadowBlur = 5 + amp*22;
+    const bodyGrad = ctx.createLinearGradient(x-w/2, topY, x+w/2, baseY);
+    bodyGrad.addColorStop(0, 'rgba(255,255,255,.94)');
+    bodyGrad.addColorStop(.08, g);
+    bodyGrad.addColorStop(.44, c);
+    bodyGrad.addColorStop(1, 'rgba(255,255,255,.08)');
+    roundedRectPath(x-w/2, topY, w, h, Math.max(4,w*.22));
+    ctx.fillStyle = bodyGrad; ctx.fill();
+    ctx.lineWidth = Math.max(.8, scale*1.25); ctx.strokeStyle = 'rgba(255,255,255,.44)'; ctx.stroke();
+    // 顶部晶体盖
+    const capGrad = ctx.createRadialGradient(x, topY, 0, x, topY, w*.85);
+    capGrad.addColorStop(0,'rgba(255,255,255,1)'); capGrad.addColorStop(.25,g); capGrad.addColorStop(1,glow(note,amp,.15));
+    roundedRectPath(x-w*.47, topY-topH*.37, w*.94, topH, Math.max(3,w*.18));
+    ctx.fillStyle = capGrad; ctx.fill();
+    // 侧面高光
+    ctx.globalAlpha = .32 + amp*.25;
+    ctx.fillStyle = 'rgba(255,255,255,.92)';
+    roundedRectPath(x-w*.32, topY+8, Math.max(1.2,w*.09), Math.max(4,h-18), 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawGrid(energy){
+    ctx.save();
+    ctx.globalAlpha = .42;
+    ctx.strokeStyle = 'rgba(70,230,255,.14)'; ctx.lineWidth = 1;
+    const top = H*.15, bottom = H*.90;
+    for(let i=0;i<20;i++){
+      const x = W*.02 + i*(W*.96/19);
+      ctx.beginPath(); ctx.moveTo(x,bottom); ctx.lineTo(W/2 + (x-W/2)*.59,top); ctx.stroke();
+    }
+    for(let j=0;j<14;j++){
+      const y = bottom - j*((bottom-top)/13);
+      ctx.beginPath(); ctx.moveTo(W*.035 + j*7, y); ctx.lineTo(W*.965 - j*7, y); ctx.stroke();
+    }
+    ctx.globalAlpha = .11 + energy*.20;
+    const grd = ctx.createRadialGradient(W/2,H*.57,0,W/2,H*.57,Math.min(W,H)*.66);
+    grd.addColorStop(0,'rgba(0,216,255,.58)'); grd.addColorStop(1,'rgba(0,216,255,0)');
+    ctx.fillStyle=grd; ctx.fillRect(0,0,W,H);
+    ctx.restore();
+  }
+
+  function drawWaves(t, energy){
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for(let k=0;k<2;k++){
+      const yBase = H*(.54 + .055*Math.sin(t*.00075+k));
+      const grad = ctx.createLinearGradient(W*.05,0,W*.95,0);
+      grad.addColorStop(0,'rgba(0,216,255,0)'); grad.addColorStop(.18,'rgba(0,216,255,.78)'); grad.addColorStop(.36,'rgba(255,50,255,.80)'); grad.addColorStop(.54,'rgba(255,232,0,.82)'); grad.addColorStop(.74,'rgba(0,255,160,.78)'); grad.addColorStop(1,'rgba(124,124,255,0)');
+      ctx.strokeStyle=grad; ctx.lineWidth=1.2 + energy*5 + k*.25; ctx.globalAlpha=.16 + energy*.36;
+      ctx.shadowColor='rgba(0,216,255,.9)'; ctx.shadowBlur=6+energy*16;
+      ctx.beginPath();
+      for(let i=0;i<=150;i++){
+        const x = -W*.08 + i*(W*1.16/150);
+        const y = yBase + Math.sin(i*.15 + t*.0024 + k*1.7)*H*.045 + Math.sin(i*.045 - t*.0012)*H*.02;
+        if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+      }
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawParticles(t){
+    ctx.save(); ctx.globalCompositeOperation='lighter';
+    for(let i=0;i<88;i++){
+      const amp = smooth[i];
+      if(amp < .18) continue;
+      const midi = MIDI_START+i;
+      const p = keyPosition(midi); const note=midiToNote(midi);
+      const count = Math.min(9, Math.floor(amp*10));
+      for(let j=0;j<count;j++){
+        const a = Math.sin(t*.003+j*12.989+midi)*.5+.5;
+        const x = p.x + Math.sin(t*.0017+j*2.4+midi)*18*p.scale;
+        const y = p.y - 80*amp*p.scale - a*125*amp;
+        ctx.globalAlpha = (1-a)*.46*amp;
+        ctx.fillStyle=glow(note,amp,1); ctx.shadowColor=glow(note,amp,1); ctx.shadowBlur=5;
+        ctx.beginPath(); ctx.arc(x,y,1.3+amp*2.2,0,Math.PI*2); ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
+
+  function render(t){
+    requestAnimationFrame(render);
+    if(t - lastRenderTime < FRAME_INTERVAL) return;
+    lastRenderTime = t;
+    visualT = t || 0;
+    updateAnalysis();
+    ctx.clearRect(0,0,W,H);
+    const bg = ctx.createRadialGradient(W/2,H*.52,0,W/2,H*.52,Math.max(W,H)*.7);
+    bg.addColorStop(0,'rgba(2,16,34,.34)'); bg.addColorStop(.55,'rgba(1,4,13,.22)'); bg.addColorStop(1,'rgba(0,0,0,.62)');
+    ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);
+    drawGrid(lastEnergy);
+    const items=[];
+    for(let midi=MIDI_START;midi<=MIDI_END;midi++){
+      const p=keyPosition(midi); const amp=smooth[midi-MIDI_START]||0;
+      items.push({...p, amp, midi});
+    }
+    items.sort((a,b)=>a.y-b.y);
+    for(const it of items){
+      const idle = .032 + .018*Math.sin(t*.0012 + it.midi*.37);
+      const amp = clamp(it.amp + idle,0,1);
+      const colW = clamp(W/55, 11, 30) * it.scale;
+      const baseHeight = (H*.020) * it.scale;
+      const maxHeight = H * .54 * it.scale;
+      const micro = Math.sin(t*.004 + it.midi*.29) * amp * 12;
+      const h = baseHeight + Math.pow(amp,.78)*maxHeight + micro;
+      drawPillar(it.x,it.y,colW,h,midiToNote(it.midi),amp,it.scale);
+    }
+    drawWaves(t,lastEnergy);
+    drawParticles(t);
+  }
+
+  function scheduleNote(midi,start,dur,vel=.7){
+    const now = audioCtx.currentTime;
+    const t0 = now + start;
+    const f = midiToFreq(midi);
+    const g = audioCtx.createGain();
+    g.gain.setValueAtTime(0.0001,t0);
+    g.gain.exponentialRampToValueAtTime(Math.max(0.001,vel*.22),t0+.012);
+    g.gain.exponentialRampToValueAtTime(Math.max(0.0001,vel*.10),t0+Math.min(.18,dur*.3));
+    g.gain.exponentialRampToValueAtTime(0.0001,t0+dur+.28);
+    g.connect(masterGain);
+    const o1=audioCtx.createOscillator(), o2=audioCtx.createOscillator(), o3=audioCtx.createOscillator();
+    o1.type='triangle'; o2.type='sine'; o3.type='sine';
+    o1.frequency.setValueAtTime(f,t0); o2.frequency.setValueAtTime(f*2.002,t0); o3.frequency.setValueAtTime(f*3.001,t0);
+    const g2=audioCtx.createGain(); g2.gain.setValueAtTime(.24,t0); g2.connect(g);
+    const g3=audioCtx.createGain(); g3.gain.setValueAtTime(.08,t0); g3.connect(g);
+    o1.connect(g); o2.connect(g2); o3.connect(g3);
+    [o1,o2,o3].forEach(o=>{ o.start(t0); o.stop(t0+dur+.35); activeOsc.push(o); });
+  }
+  function addChord(events,time,notes,dur,vel=.45){ notes.forEach((n,k)=>events.push({midi:n,time:time+k*.012,dur,vel})); }
+  function makeOde(){
+    const q=.42,h=.84; let t=0; const ev=[];
+    const melody=[64,64,65,67,67,65,64,62,60,60,62,64,64,62,62,64,64,65,67,67,65,64,62,60,60,62,64,62,60,60,62,62,64,60,62,64,65,64,60,62,64,65,64,62,60,62,55,64,64,65,67,67,65,64,62,60,60,62,64,62,60,60];
+    const durs=melody.map((_,i)=>([14,29,46,61].includes(i)?h:q));
+    melody.forEach((m,i)=>{ ev.push({midi:m,time:t,dur:durs[i]*.92,vel:.62+(i%8===0?.2:0)}); if(i%2===0){ const root=(i%8<4)?48:43; addChord(ev,t,[root,root+7,root+12],q*.9,.25); } t+=durs[i]; });
+    return ev;
+  }
+  function makeCanon(){
+    const ev=[]; let t=0; const beat=.34;
+    const roots=[50,45,47,42,43,50,43,45];
+    const qualities=[[0,4,7],[0,4,7],[0,3,7],[0,3,7],[0,4,7],[0,4,7],[0,4,7],[0,4,7]];
+    for(let cycle=0;cycle<8;cycle++){
+      roots.forEach((r,idx)=>{
+        const chord=qualities[idx].map(x=>r+x);
+        addChord(ev,t,[r-12,r,chord[1],chord[2]],beat*2.2,.32);
+        const arp=[r,r+7,r+12,r+16,r+19,r+16,r+12,r+7];
+        arp.forEach((m,j)=>ev.push({midi:m+12,time:t+j*beat*.5,dur:beat*.48,vel:.42+.1*Math.sin(j+cycle)}));
+        if(cycle>2){ const top=[r+24,r+28,r+31,r+28]; top.forEach((m,j)=>ev.push({midi:m,time:t+j*beat,dur:beat*.85,vel:.50})); }
+        t += beat*4;
+      });
+    }
+    return ev;
+  }
+  function makeLullaby(){
+    const ev=[]; let t=0; const q=.52;
+    const melody=[67,67,70,67,67,70,67,70,74,72,70,69,65,67,69,67,64,64,65,67,69,67,65,64,62,62,64,65,67,65,64,62,67,67,70,67,67,70,67,70,74,72,70,69,65,67,69,67,64,65,67,72,70,67,65,64,62,64,65,67,60,60];
+    const durs=melody.map((_,i)=>i%8===7?q*1.6:q);
+    melody.forEach((m,i)=>{ ev.push({midi:m,time:t,dur:durs[i]*.95,vel:.48+(i%16===8?.16:0)}); if(i%3===0){ const root=[48,55,52,53][Math.floor(i/3)%4]; addChord(ev,t,[root,root+7,root+12],q*1.2,.22); } t+=durs[i]; });
+    return ev;
+  }
+  function makeMoonlight(){
+    // 《月光奏鸣曲》第一乐章风格片段：用于测试低音+分解和弦的立体光柱。
+    const ev=[]; let t=0; const step=.22;
+    const patterns=[
+      [37,49,52,56,61,64], [36,48,52,55,60,64], [35,47,50,55,59,62], [40,52,55,59,64,67]
+    ];
+    for(let r=0;r<18;r++){
+      const p=patterns[r%patterns.length];
+      ev.push({midi:p[0],time:t,dur:step*5.5,vel:.38});
+      for(let i=1;i<p.length;i++) ev.push({midi:p[i],time:t+(i-1)*step,dur:step*1.7,vel:.34+.05*i});
+      ev.push({midi:p[3]+12,time:t+step*3,dur:step*2.2,vel:.38});
+      t += step*5.3;
+    }
+    return ev;
+  }
+  async function playDemo(kind){
+    await ensureAudio();
+    stopAll();
+    currentMode='demo';
+    const makers={ode:makeOde,canon:makeCanon,lullaby:makeLullaby,moonlight:makeMoonlight};
+    const names={ode:'贝多芬《欢乐颂》主题',canon:'帕赫贝尔《D大调卡农》循环',lullaby:'舒伯特《摇篮曲》主题',moonlight:'贝多芬《月光奏鸣曲》片段'};
+    const events=makers[kind]();
+    const maxT=Math.max(...events.map(e=>e.time+e.dur));
+    trackName.textContent=names[kind];
+    msg.textContent=`正在播放内置名曲：${names[kind]}。这是浏览器合成钢琴音色，用于测试上一版立体音柱效果。`;
+    events.forEach(e=>scheduleNote(e.midi,e.time+.08,e.dur,e.vel));
+    window.setTimeout(()=>{ if(currentMode==='demo') msg.textContent=`内置名曲播放结束：${names[kind]}。可以换曲或上传 MP3。`; },(maxT+1)*1000);
+  }
+
+  mp3Input.addEventListener('change', async (e)=>{
+    const file=e.target.files && e.target.files[0];
+    if(!file) return;
+    await ensureAudio();
+    stopAll();
+    if(objectUrl) URL.revokeObjectURL(objectUrl);
+    objectUrl = URL.createObjectURL(file);
+    audioEl = new Audio();
+    audioEl.src = objectUrl;
+    audioEl.preload='auto';
+    audioEl.crossOrigin='anonymous';
+    mediaSource = null;
+    trackName.textContent = file.name;
+    msg.textContent = `已上传：${file.name}。点击“播放上传音乐”即可用 MP3 驱动立体赛博音柱。`;
+    audioEl.addEventListener('ended',()=>{ currentMode='idle'; msg.textContent=`上传音乐播放结束：${file.name}`; });
+  });
+  playUploadBtn.addEventListener('click', async ()=>{
+    if(!audioEl){ msg.textContent='请先上传一个 MP3 文件。'; return; }
+    await ensureAudio(); clearSynth(); connectUploadedAudio(); currentMode='mp3'; await audioEl.play();
+    msg.textContent='正在播放上传 MP3。音柱由频谱能量驱动：越响越高、越亮；音高区域越接近，对应音柱响应越明显。';
+  });
+  playDemoBtn.addEventListener('click',()=>playDemo(demoSelect.value));
+  pauseBtn.addEventListener('click', async ()=>{
+    if(!audioCtx) return;
+    if(audioEl && currentMode==='mp3'){
+      if(audioEl.paused){ await audioEl.play(); msg.textContent='继续播放上传 MP3。'; }
+      else { audioEl.pause(); msg.textContent='已暂停上传 MP3。'; }
+    }else{
+      if(audioCtx.state==='running'){ await audioCtx.suspend(); msg.textContent='已暂停内置合成音频。'; }
+      else { await audioCtx.resume(); msg.textContent='继续播放内置合成音频。'; }
+    }
+  });
+  stopBtn.addEventListener('click', stopAll);
+
+  requestAnimationFrame(render);
+})();
+</script>
+</body>
+</html>
