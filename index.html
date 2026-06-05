@@ -78,9 +78,9 @@
   <div class="hud-frame"></div><div class="corner c1"></div><div class="corner c2"></div><div class="corner c3"></div><div class="corner c4"></div>
   <div class="topbar">
     <div class="title">
-      <div class="tag">Cyber Piano Pillars · MP3 3D</div>
+      <div class="tag">Cyber Piano Pillars · MP3 3D V3</div>
       <h1>Cyber Piano 88｜钢琴赛博音柱可视化</h1>
-      <p>上传 MP3 后，网页会用音频频谱估算88键音区能量：音量越大，音柱越高、越亮；高低音区会形成流动的赛博光柱画面。</p>
+      <p>上传 MP3 后，网页会先判断音乐主要集中在哪个音域，再让对应音区的音柱跳动；避免所有音柱一起乱跳。</p>
     </div>
     <div class="controls">
       <label class="fileBtn">上传 MP3<input id="mp3Input" type="file" accept="audio/mpeg,.mp3" /></label>
@@ -97,7 +97,7 @@
     </div>
   </div>
   <div class="status">
-    <div class="chip"><b id="trackName">未上传 MP3</b><div id="msg" class="tiny">这是一个可直接上线的网页版本：可上传 MP3，也可播放内置名曲示范；音柱会根据音乐频谱、音量和音区实时跳动。</div></div>
+    <div class="chip"><b id="trackName">未上传 MP3</b><div id="msg" class="tiny">V3已优化：降低卡顿，并增加“音区筛选”。现在不是所有音柱一起跳，而是由低/中/高音区的频谱能量分别驱动。</div></div>
     <div class="chip" style="min-width:min(540px,100%)">
       <div class="meterRow"><span>整体音量能量</span><span id="energyText">0%</span></div>
       <div class="progress"><i id="bar"></i></div>
@@ -130,11 +130,13 @@
   let lastEnergy=0;
   let visualT=0;
   let lastRenderTime=0;
-  const FRAME_INTERVAL = 1000/30; // 30fps：更流畅，风扇不容易起飞
+  const FRAME_INTERVAL = 1000/24; // 24fps：优先保证流畅
   const smooth = new Float32Array(88);
+  const rawBands = new Float32Array(88);
+  const gatedBands = new Float32Array(88);
 
   function resize(){
-    DPR = Math.max(1, Math.min(window.devicePixelRatio || 1, 1.25));
+    DPR = 1; // 固定 1 倍像素，显著降低高清屏卡顿
     W = window.innerWidth; H = window.innerHeight;
     canvas.width = Math.floor(W * DPR); canvas.height = Math.floor(H * DPR);
     canvas.style.width = W+'px'; canvas.style.height = H+'px';
@@ -162,8 +164,10 @@
     if(!audioCtx){
       audioCtx = new (window.AudioContext || window.webkitAudioContext)();
       analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 8192;
-      analyser.smoothingTimeConstant = 0.78;
+      analyser.fftSize = 4096;
+      analyser.smoothingTimeConstant = 0.62;
+      analyser.minDecibels = -82;
+      analyser.maxDecibels = -18;
       freqData = new Uint8Array(analyser.frequencyBinCount);
       timeData = new Uint8Array(analyser.fftSize);
       binHz = audioCtx.sampleRate / analyser.fftSize;
@@ -196,20 +200,28 @@
   function energyForMidi(midi){
     if(!freqData || !binHz) return 0;
     const f = midiToFreq(midi);
-    const low = f * Math.pow(2, -1/14);
-    const high = f * Math.pow(2, 1/14);
-    let a = Math.max(0, Math.floor(low/binHz));
-    let b = Math.min(freqData.length-1, Math.ceil(high/binHz));
+    // 每个音只取靠近该音高中心的一小段频谱，避免一个大音量把所有柱子都带起来。
+    const low = f * Math.pow(2, -1/28);
+    const high = f * Math.pow(2, 1/28);
+    let a = Math.max(1, Math.floor(low/binHz));
+    let b = Math.min(freqData.length-2, Math.ceil(high/binHz));
     if(b<a){ const tmp=a; a=b; b=tmp; }
     let max=0,sum=0,count=0;
-    for(let i=a;i<=b;i++){ const v=freqData[i]; if(v>max) max=v; sum+=v; count++; }
+    for(let i=a;i<=b;i++){
+      // 轻微强调中心频率，弱化边缘泄漏。
+      const hz = i * binHz;
+      const dist = Math.abs(Math.log2(hz / f));
+      const weight = Math.max(0.15, 1 - dist * 16);
+      const v = freqData[i] * weight;
+      if(v>max) max=v; sum+=v; count++;
+    }
     const avg = count ? sum/count : 0;
-    let e = (max*.74 + avg*.26)/255;
-    if(f > 1200) e *= 1.30;
-    if(f > 2400) e *= 1.18;
-    if(f < 80) e *= .78;
-    if(f < 45) e *= .70;
-    return clamp(Math.pow(e, 1.08) * 1.95 - 0.018, 0, 1);
+    let e = (max*.82 + avg*.18)/255;
+    // 人耳与浏览器频谱对高频较敏感，对低频分辨率较差，这里做一点补偿。
+    if(f > 1100) e *= 1.10;
+    if(f > 2300) e *= 0.92;
+    if(f < 70) e *= 0.72;
+    return clamp(e, 0, 1);
   }
 
   function totalEnergy(){
@@ -226,18 +238,52 @@
     if(analyser){
       analyser.getByteFrequencyData(freqData);
       const overall = totalEnergy();
-      lastEnergy = lastEnergy*.84 + overall*.16;
+      lastEnergy = lastEnergy*.88 + overall*.12;
     } else {
       lastEnergy *= .92;
     }
+
+    // 1）先计算88个音高附近的原始频谱能量。
+    let globalMax = 0;
     for(let i=0;i<88;i++){
       const midi = MIDI_START+i;
-      let e = analyser ? energyForMidi(midi) : 0;
-      // 整体音量托底：避免真实 MP3 谱面太“稀”，但仍以频率对应为主。
-      e = clamp(e + lastEnergy*.08, 0, 1);
-      // 快起慢落，保留音乐残影。
-      smooth[i] = Math.max(e, smooth[i]*.885);
+      const e = analyser ? energyForMidi(midi) : 0;
+      rawBands[i] = e;
+      if(e > globalMax) globalMax = e;
     }
+
+    // 2）按“八度音区”做局部筛选：只让该音区内真正突出的柱子跳。
+    //    这样快歌/大音量时，不会88根柱子一起动。
+    gatedBands.fill(0);
+    for(let start=0; start<88; start+=12){
+      const end = Math.min(88, start+12);
+      let max=0, sum=0;
+      for(let i=start;i<end;i++){ max=Math.max(max, rawBands[i]); sum+=rawBands[i]; }
+      const avg = sum / Math.max(1, end-start);
+      const threshold = Math.max(0.035, avg*1.55, max*0.38, lastEnergy*0.08);
+      for(let i=start;i<end;i++){
+        let v = rawBands[i];
+        if(v <= threshold) v = 0;
+        else v = (v - threshold) / Math.max(0.001, max - threshold);
+        // 保留一点原始强度，避免只有最高一根柱子动。
+        v = clamp(v * Math.pow(rawBands[i]*2.25, .72), 0, 1);
+        gatedBands[i] = v;
+      }
+    }
+
+    // 3）全局再做一次“强者保留”：大动态音乐下也只保留明显音区。
+    const globalThreshold = Math.max(0.030, globalMax*0.24, lastEnergy*0.045);
+    for(let i=0;i<88;i++){
+      let e = gatedBands[i];
+      if(rawBands[i] < globalThreshold) e = 0;
+      // 只允许非常少的邻近扩散，让和弦/泛音看起来不生硬，但不再全屏乱跳。
+      const left = i>0 ? gatedBands[i-1]*0.18 : 0;
+      const right = i<87 ? gatedBands[i+1]*0.18 : 0;
+      e = clamp(Math.max(e, left, right), 0, 1);
+      // 快起慢落。下降更快一点，画面更清楚。
+      smooth[i] = Math.max(e, smooth[i]*.78);
+    }
+
     energyText.textContent = `${Math.round(lastEnergy*100)}%`;
     bar.style.width = `${Math.round(lastEnergy*100)}%`;
   }
@@ -274,20 +320,20 @@
     // 底座
     ctx.save();
     ctx.globalAlpha = .23 + amp*.42;
-    ctx.shadowColor = g; ctx.shadowBlur = 6 + amp*18;
+    if(amp>.14){ ctx.shadowColor = g; ctx.shadowBlur = 4 + amp*12; }
     roundedRectPath(x-w*.88, baseY+4, w*1.76, Math.max(7,w*.54), Math.max(3,w*.16));
     ctx.fillStyle = color(note, amp, .36); ctx.fill();
     ctx.restore();
     // 光晕
-    if(amp>.035){
-      const rad = 18 + amp*46;
+    if(amp>.16){
+      const rad = 14 + amp*34;
       const grd = ctx.createRadialGradient(x, topY+h*.46, 0, x, topY+h*.46, rad);
       grd.addColorStop(0, glow(note,amp,.28)); grd.addColorStop(1, glow(note,amp,0));
       ctx.fillStyle = grd; ctx.beginPath(); ctx.arc(x, topY+h*.46, rad, 0, Math.PI*2); ctx.fill();
     }
     // 柱身
     ctx.save();
-    ctx.shadowColor = g; ctx.shadowBlur = 5 + amp*22;
+    if(amp>.12){ ctx.shadowColor = g; ctx.shadowBlur = 4 + amp*13; }
     const bodyGrad = ctx.createLinearGradient(x-w/2, topY, x+w/2, baseY);
     bodyGrad.addColorStop(0, 'rgba(255,255,255,.94)');
     bodyGrad.addColorStop(.08, g);
@@ -332,11 +378,11 @@
   function drawWaves(t, energy){
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
-    for(let k=0;k<2;k++){
+    for(let k=0;k<1;k++){
       const yBase = H*(.54 + .055*Math.sin(t*.00075+k));
       const grad = ctx.createLinearGradient(W*.05,0,W*.95,0);
       grad.addColorStop(0,'rgba(0,216,255,0)'); grad.addColorStop(.18,'rgba(0,216,255,.78)'); grad.addColorStop(.36,'rgba(255,50,255,.80)'); grad.addColorStop(.54,'rgba(255,232,0,.82)'); grad.addColorStop(.74,'rgba(0,255,160,.78)'); grad.addColorStop(1,'rgba(124,124,255,0)');
-      ctx.strokeStyle=grad; ctx.lineWidth=1.2 + energy*5 + k*.25; ctx.globalAlpha=.16 + energy*.36;
+      ctx.strokeStyle=grad; ctx.lineWidth=1 + energy*3.2 + k*.25; ctx.globalAlpha=.12 + energy*.28;
       ctx.shadowColor='rgba(0,216,255,.9)'; ctx.shadowBlur=6+energy*16;
       ctx.beginPath();
       for(let i=0;i<=150;i++){
@@ -397,7 +443,8 @@
       drawPillar(it.x,it.y,colW,h,midiToNote(it.midi),amp,it.scale);
     }
     drawWaves(t,lastEnergy);
-    drawParticles(t);
+    // 粒子非常耗性能，当前版本默认关闭，保证网页发布后不卡顿。
+    // drawParticles(t);
   }
 
   function scheduleNote(midi,start,dur,vel=.7){
@@ -497,7 +544,7 @@
   playUploadBtn.addEventListener('click', async ()=>{
     if(!audioEl){ msg.textContent='请先上传一个 MP3 文件。'; return; }
     await ensureAudio(); clearSynth(); connectUploadedAudio(); currentMode='mp3'; await audioEl.play();
-    msg.textContent='正在播放上传 MP3。音柱由频谱能量驱动：越响越高、越亮；音高区域越接近，对应音柱响应越明显。';
+    msg.textContent='正在播放上传 MP3。V3会先判断主要音区，再让相关音柱响应；大音量时也会尽量避免全屏音柱一起跳。';
   });
   playDemoBtn.addEventListener('click',()=>playDemo(demoSelect.value));
   pauseBtn.addEventListener('click', async ()=>{
